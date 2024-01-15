@@ -14,7 +14,7 @@ exclude = ["/.github", "/examples", "/scripts"]
 
 [dependencies]
 tokio = { git = "https://github.com/wasix-org/tokio.git", branch = "wasix-1.35.1" }
-rustls = { git = "https://github.com/wasix-org/rustls.git", branch = "v0.21.8", default-features = false }
+rustls = { git = "https://github.com/wasix-org/rustls.git", branch = "v0.22.2", default-features = false }
 pki-types = { package = "rustls-pki-types", version = "1" }
 
 [features]
