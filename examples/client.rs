@@ -1,14 +1,15 @@
-use std::fs::File;
+use std::error::Error as StdError;
 use std::io;
-use std::io::BufReader;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use argh::FromArgs;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, ServerName};
 use tokio::io::{copy, split, stdin as tokio_stdin, stdout as tokio_stdout, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio_rustls::TlsConnector;
+use tokio_rustls::{rustls, TlsConnector};
 
 /// Tokio Rustls client example
 #[derive(FromArgs)]
@@ -31,7 +32,7 @@ struct Options {
 }
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), Box<dyn StdError + Send + Sync + 'static>> {
     let options: Options = argh::from_env();
 
     let addr = (options.host.as_str(), options.port)
@@ -43,9 +44,8 @@ async fn main() -> io::Result<()> {
 
     let mut root_cert_store = rustls::RootCertStore::empty();
     if let Some(cafile) = &options.cafile {
-        let mut pem = BufReader::new(File::open(cafile)?);
-        for cert in rustls_pemfile::certs(&mut pem) {
-            root_cert_store.add(cert?).unwrap();
+        for cert in CertificateDer::pem_file_iter(cafile)? {
+            root_cert_store.add(cert?)?;
         }
     } else {
         root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -60,10 +60,7 @@ async fn main() -> io::Result<()> {
 
     let (mut stdin, mut stdout) = (tokio_stdin(), tokio_stdout());
 
-    let domain = pki_types::ServerName::try_from(domain.as_str())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dnsname"))?
-        .to_owned();
-
+    let domain = ServerName::try_from(domain.as_str())?.to_owned();
     let mut stream = connector.connect(domain, stream).await?;
     stream.write_all(content.as_bytes()).await?;
 

@@ -1,15 +1,16 @@
-use std::fs::File;
-use std::io::{self, BufReader};
+use std::io;
 use std::net::ToSocketAddrs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use std::error::Error as StdError;
 use std::sync::Arc;
 
 use argh::FromArgs;
-use pki_types::{CertificateDer, PrivateKeyDer};
-use rustls_pemfile::{certs, rsa_private_keys};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::io::{copy, sink, split, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio_rustls::TlsAcceptor;
+use tokio_rustls::{rustls, TlsAcceptor};
 
 /// Tokio Rustls server example
 #[derive(FromArgs)]
@@ -31,19 +32,8 @@ struct Options {
     echo_mode: bool,
 }
 
-fn load_certs(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
-    certs(&mut BufReader::new(File::open(path)?)).collect()
-}
-
-fn load_keys(path: &Path) -> io::Result<PrivateKeyDer<'static>> {
-    rsa_private_keys(&mut BufReader::new(File::open(path)?))
-        .next()
-        .unwrap()
-        .map(Into::into)
-}
-
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), Box<dyn StdError + Send + Sync + 'static>> {
     let options: Options = argh::from_env();
 
     let addr = options
@@ -51,14 +41,13 @@ async fn main() -> io::Result<()> {
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?;
-    let certs = load_certs(&options.cert)?;
-    let key = load_keys(&options.key)?;
+    let certs = CertificateDer::pem_file_iter(&options.cert)?.collect::<Result<Vec<_>, _>>()?;
+    let key = PrivateKeyDer::from_pem_file(&options.key)?;
     let flag_echo = options.echo_mode;
 
     let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+        .with_single_cert(certs, key)?;
     let acceptor = TlsAcceptor::from(Arc::new(config));
 
     let listener = TcpListener::bind(&addr).await?;
